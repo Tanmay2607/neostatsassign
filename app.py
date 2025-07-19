@@ -15,7 +15,7 @@ def extract_python_code(response_text):
         return match.group(1).strip()
     return response_text.strip()
 
-# --- 3. Gemini LLM call ---
+# --- 3. Gemini LLM Call ---
 def call_gemini_llm(prompt, api_key):
     try:
         genai.configure(api_key=api_key)
@@ -42,30 +42,32 @@ def normalize_string_values(df):
 def get_data_schema(df):
     schema_parts = []
     for col in df.columns:
-        if df[col].dtype == 'object':
-            examples = df[col].unique()[:3]
+        dtype = df[col].dtype
+        if dtype == 'object':
+            examples = df[col].dropna().unique()[:3]
             sample = ", ".join([f"'{str(x)}'" for x in examples])
             schema_parts.append(f"{col} (object, e.g., {sample})")
         else:
-            schema_parts.append(f"{col} ({df[col].dtype})")
+            schema_parts.append(f"{col} ({dtype})")
     return "\n".join(schema_parts)
 
 def generate_llm_prompt(query, df):
     schema = get_data_schema(df)
     return f"""
-You are an expert Python data analyst assistant. Your task is to generate Python code to answer a user's question about a pandas DataFrame named `df`.
+You are a Python data analyst assistant. Write Python code to answer the user's question based on the DataFrame `df`.
 
 **DATAFRAME SCHEMA:**
-"{schema}"
-**USER QUERY:**
-"{query}"
+{schema}
 
-**INSTRUCTIONS:**
-1. Use `df` directly. Do not reload or open files.
-2. Assign the result (scalar, DataFrame, or Series) to a variable named `result`.
-3. For plots, use `matplotlib.pyplot`, and display with `st.pyplot(plt.gcf())`. Do not call `plt.show()`.
-4. Normalize object columns for comparisons using `.str.lower().str.strip()`.
-5. Only return executable Python code in a code block.
+**USER QUESTION:**
+{query}
+
+**RULES:**
+1. Use the provided DataFrame `df`. Do not read from or write to any files.
+2. Normalize object/string columns with `.str.strip().str.lower()` before comparisons.
+3. Assign your final result (DataFrame, Series, value, or plot) to a variable named `result`.
+4. If the answer is a chart, use matplotlib and call `st.pyplot(plt.gcf())`. Do not call `plt.show()`.
+5. Return only executable Python code inside a code block.
 """
 
 # --- 5. Code Execution ---
@@ -74,32 +76,28 @@ def execute_generated_code(code, df):
     local_scope = {'df': df_copy, 'pd': pd, 'plt': plt, 'st': st}
     try:
         exec(code, {}, local_scope)
-        result = local_scope.get("result", None)
-        if isinstance(result, (pd.DataFrame, pd.Series)):
-            return result
-        elif isinstance(result, (int, float, bool, str)):
-            return str(result)
-        return "✅ Code executed successfully. If you asked for a chart, it should be displayed above."
+        return local_scope.get("result", "✅ Code executed successfully.")
     except Exception as e:
         st.error("❌ An error occurred while executing the generated code.")
         st.exception(e)
         return None
 
-# --- 6. Streamlit App UI ---
+# --- 6. Streamlit UI ---
 st.set_page_config(page_title="NeoAT Excel Assistant", layout="centered")
 st.title("📊 Tanmay's Excel Sheet Analyzer")
 
 # Auto-read API key from secrets
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 
-uploaded_file = st.file_uploader(" Upload your Excel file", type=["xlsx"])
-query = st.text_input(" Ask a question about your excel sheet")
-submit_button = st.button("Analyze")
+uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
+query = st.text_input("💬 Ask a question about your Excel data")
+submit_button = st.button("🔍 Analyze")
+
 if submit_button:
     if not api_key:
-        st.warning("🔐 Gemini API key missing from `secrets.toml`. Please add `GEMINI_API_KEY`.")
+        st.warning("🔐 Gemini API key missing in `secrets.toml`. Please add `GEMINI_API_KEY`.")
     elif not uploaded_file:
-        st.warning("📁 Please upload an Excel file.")
+        st.warning("📄 Please upload a valid Excel file.")
     elif not query:
         st.warning("❓ Please enter a question.")
     else:
@@ -108,18 +106,15 @@ if submit_button:
             df = normalize_column_names(df)
             df = normalize_string_values(df)
 
-            st.subheader("🔍 Data Preview")
+            st.subheader("📑 Data Preview")
             st.dataframe(df.head())
 
             prompt = generate_llm_prompt(query, df)
-
             with st.spinner("🤖 Thinking with Gemini..."):
                 response = call_gemini_llm(prompt, api_key)
                 if response:
                     code = extract_python_code(response)
-
-                    # 🔒 Don't display the generated code
-                    result = execute_generated_code(code, df.copy())
+                    result = execute_generated_code(code, df)
 
                     st.subheader("💡 Answer / Chart")
                     if isinstance(result, (pd.DataFrame, pd.Series)):
@@ -128,4 +123,4 @@ if submit_button:
                         st.write(result)
 
         except Exception as e:
-            st.error(f"❌ Failed to process: {e}")
+            st.error(f"❌ Failed to analyze your file: {e}")
