@@ -24,8 +24,6 @@ def call_gemini_llm(prompt, api_key):
         return response.text
     except Exception as e:
         st.error(f"❌ Gemini API call failed: {e}")
-        if 'API key' in str(e):
-            st.error("Please ensure your Gemini API key is correct and valid in your Streamlit secrets.")
         return None
 
 # --- 4. Schema & Prompt ---
@@ -89,19 +87,22 @@ def execute_generated_code(code, df):
 
 # --- 6. Streamlit App UI ---
 st.set_page_config(page_title="NeoAT Excel Assistant", layout="centered")
-st.title("Tanmay's Excel Sheet Analyzer")
-st.markdown("Ask questions like:\n- *‘Count countries with lower rank than Syria’*\n- *‘Plot bar chart of top 5 by score’*")
+st.title("📊 Tanmay's Excel Sheet Analyzer")
 
-with st.sidebar:
-    st.header("Controls")
-    api_key = st.text_input("🔑 Gemini API Key", type="password")
-    uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
-    query = st.text_input("❓ Ask a question about your data")
-    submit_button = st.button("🚀 Analyze")
+st.markdown("Ask questions like:")
+st.markdown("- *‘Count countries with lower rank than Syria’*")
+st.markdown("- *‘Plot bar chart of top 5 by score’*")
+
+# Auto-read API key from secrets
+api_key = st.secrets.get("GEMINI_API_KEY", "")
+
+uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
+query = st.text_input("❓ Ask a question about your data")
+submit_button = st.button("🚀 Analyze")
 
 if submit_button:
     if not api_key:
-        st.warning("🔑 Please enter your Gemini API key.")
+        st.warning("🔐 Gemini API key missing from `secrets.toml`. Please add `GEMINI_API_KEY`.")
     elif not uploaded_file:
         st.warning("📁 Please upload an Excel file.")
     elif not query:
