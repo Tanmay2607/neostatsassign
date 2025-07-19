@@ -118,6 +118,23 @@ def execute_generated_code(code, df):
         st.exception(e)
         return None
 
+# --- 5. Streamlit App (Updated to use Gemini) ---
+st.set_page_config(page_title="NeoAT Excel Assistant", layout="centered")
+st.title("Tanmay's Excel Sheet Analyzer")
+st.markdown("Ask questions like:\n- *‘Count countries with lower rank than Syria’*\n- *‘Plot bar chart of top 5 by score’*")
+
+# --- IMPORTANT: Update the secret key name ---
+# 1. Go to your Streamlit Community Cloud settings.
+# 2. Add a new secret called 'GEMINI_API_KEY' and paste your API key there.
+api_key = st.secrets.get("GEMINI_API_KEY")
+
+uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
+query = st.text_input("❓ Ask a question about your data")
+        return None
+
+if not api_key:
+    st.warning("🔑 Please add your Gemini API key to the Streamlit secrets to begin.")
+elif uploaded_file and query:
 # --- 5. Streamlit App ---
 st.set_page_config(page_title="Data Analysis Assistant", layout="wide")
 st.title("💡 General-Purpose Data Analysis Assistant")
@@ -139,6 +156,30 @@ elif submit_button and not query:
     st.warning("❓ Please ask a question.")
 elif submit_button and api_key and uploaded_file and query:
     try:
+        df = pd.read_excel(uploaded_file, engine="openpyxl")
+        df = normalize_column_names(df)
+        df = normalize_string_values(df)
+        st.subheader("🔍 Data Preview")
+        st.dataframe(df.head())
+
+        schema = get_data_schema(df)
+        prompt = generate_llm_prompt(query, schema)
+
+        with st.spinner("🤖 Thinking with Gemini..."):
+            # Call the new Gemini function
+            response = call_gemini_llm(prompt, api_key)
+            if response:  # Check if the API call was successful
+                code = extract_python_code(response)
+
+                st.subheader("🧾 Generated Python Code")
+                st.code(code, language="python")
+
+                st.subheader("💡 Answer / Chart")
+                result = execute_generated_code(code, df.copy()) # Use a copy to prevent modification issues
+                if isinstance(result, (pd.Series, pd.DataFrame)):
+                    st.write(result)
+                elif result is not None:
+                    st.write(result)
         df_original = pd.read_excel(uploaded_file, engine="openpyxl")
         df_processed = normalize_column_names(df_original)
 
@@ -148,7 +189,7 @@ elif submit_button and api_key and uploaded_file and query:
         prompt = generate_llm_prompt(query, df_processed)
         
         with st.spinner("🤖 AI is analyzing your data and writing code..."):
-            response_text = call_gemini_llm(prompt, api_key) # <-- This line needs to be indented
+            response_text = call_gemini_llm(prompt, api_key)
         
         if response_text:
             code_to_execute = extract_python_code(response_text)
@@ -166,4 +207,5 @@ elif submit_button and api_key and uploaded_file and query:
                     st.markdown(result)
 
     except Exception as e:
+        st.error(f"❌ Failed to process: {e}")
         st.error(f"❌ A critical error occurred during processing: {e}")
