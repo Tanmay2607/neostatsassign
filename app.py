@@ -94,7 +94,7 @@ api_key = st.secrets.get("GEMINI_API_KEY", "")
 
 uploaded_file = st.file_uploader(" Upload your Excel file", type=["xlsx"])
 query = st.text_input(" Ask a question about your excel sheet")
-submit_button = st.button("🚀 Analyze")
+submit_button = st.button("Analyze")
 
 if submit_button:
     if not api_key:
