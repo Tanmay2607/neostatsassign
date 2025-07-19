@@ -130,42 +130,40 @@ with st.sidebar:
     uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
     query = st.text_input("❓ Ask a question about your data")
     submit_button = st.button("🚀 Analyze")
-    uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
-    query = st.text_input("Ask a question about your excel sheet")
-    submit_button = st.button("Analyzing")
 
 if submit_button and not api_key:
     st.warning("🔑 Please enter your Gemini API key in the sidebar.")
 elif submit_button and not uploaded_file:
     st.warning("📁 Please upload an Excel file.")
-    st.warning("Please upload an Excel file.")
 elif submit_button and not query:
     st.warning("❓ Please ask a question.")
-    st.warning("Please ask a question.")
 elif submit_button and api_key and uploaded_file and query:
     try:
         df_original = pd.read_excel(uploaded_file, engine="openpyxl")
         df_processed = normalize_column_names(df_original)
 
         st.subheader("🔍 Data Preview (Normalized)")
-        st.subheader("Data Preview (Normalized)")
         st.dataframe(df_processed.head())
 
         prompt = generate_llm_prompt(query, df_processed)
-
+        
         with st.spinner("🤖 AI is analyzing your data and writing code..."):
-        with st.spinner("AI is analyzing your data and writing code..."):
-            response_text = call_gemini_llm(prompt, api_key)
-
+            response_text = call_gemini_llm(prompt, api_key) # <-- This line needs to be indented
+        
         if response_text:
             code_to_execute = extract_python_code(response_text)
             
             with st.expander("🧾 View Generated Python Code", expanded=False):
                 st.code(code_to_execute, language="python")
-        
 
             st.subheader("💡 Answer / Chart")
-            st.subheader("Answer / Chart")
             result = execute_generated_code(code_to_execute, df_processed)
 
             if result is not None:
+                if isinstance(result, (pd.DataFrame, pd.Series)):
+                    st.dataframe(result)
+                else:
+                    st.markdown(result)
+
+    except Exception as e:
+        st.error(f"❌ A critical error occurred during processing: {e}")
