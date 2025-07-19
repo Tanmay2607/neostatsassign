@@ -36,7 +36,7 @@ def normalize_column_names(df):
 
 def normalize_string_values(df):
     for col in df.select_dtypes(include=['object']):
-        df[col] = df[col].astype(str).str.strip().str.lower()
+        df[col] = df[col].astype(str).str.strip().str.lower().str.replace(",", "", regex=False)
     return df
 
 def get_data_schema(df):
@@ -63,18 +63,16 @@ You are a Python data analyst assistant. Write Python code to answer the user's 
 {query}
 
 **RULES:**
-1. Generate only executable Python code that uses the 'df' DataFrame.
-2. Do NOT include explanations or text outside the code block.
-3. 3. The code must calculate the answer and assign it to a variable named `result`. 
-   - If the query involves listing rows, assign the filtered DataFrame to `result`.
-   - If it involves a value (like sum or count), assign the scalar to `result`.
-4. If the query requires a visualization (e.g., "bar chart", "histogram"), generate valid code to create the plot using matplotlib.
-   Use `st.pyplot(plt.gcf())` instead of `plt.show()` to display the chart in Streamlit.
-5. Assume 'df' is already loaded.
-6. When filtering by a text column, always use `.str.lower().replace(",", "").str.strip()` — never use `.lower()` directly on a Series or DataFrame.
-7. Always check `.empty` before accessing `.iloc[0]` to avoid index errors.
-8. Never use `.empty` on a string or scalar. Use `.empty` only on DataFrames or Series.
-9. Never load data from a file. Do not use `pd.read_csv`, `pd.read_excel`, or any other file operations. The DataFrame named `df` is already loaded. Use it directly.
+1. Generate only Python code. Do NOT return explanations or markdown — only a code block.
+2. Use the DataFrame `df` which is already loaded.
+3. Clean text columns using `.str.lower().replace(",", "").str.strip()` before filtering.
+4. Assign the answer to `result`.
+   - If scalar (e.g., count, mean), assign scalar to `result`.
+   - If filtered rows, assign DataFrame to `result`.
+5. If a chart is required, use matplotlib and display it with `st.pyplot(plt.gcf())`. Do NOT use `plt.show()`.
+6. Avoid loading any files. Do not use `read_csv`, `read_excel`, etc.
+7. If filtering by value, ensure string matching is lowercase and stripped.
+8. Check `.empty` before using `.iloc[0]` to avoid errors.
 """
 
 # --- 5. Code Execution ---
@@ -85,7 +83,7 @@ def execute_generated_code(code, df):
         exec(code, {}, local_scope)
         return local_scope.get("result", "✅ Code executed successfully.")
     except Exception as e:
-        st.error("❌ An error occurred while executing the generated code.")
+        st.error("❌ Error during code execution.")
         st.exception(e)
         return None
 
@@ -93,7 +91,6 @@ def execute_generated_code(code, df):
 st.set_page_config(page_title="NeoAT Excel Assistant", layout="centered")
 st.title("📊 Tanmay's Excel Sheet Analyzer")
 
-# Auto-read API key from secrets
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 
 uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
@@ -102,7 +99,7 @@ submit_button = st.button("🔍 Analyze")
 
 if submit_button:
     if not api_key:
-        st.warning("🔐 Gemini API key missing in `secrets.toml`. Please add `GEMINI_API_KEY`.")
+        st.warning("🔐 Missing Gemini API key in `secrets.toml`.")
     elif not uploaded_file:
         st.warning("📄 Please upload a valid Excel file.")
     elif not query:
