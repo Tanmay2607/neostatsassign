@@ -7,12 +7,9 @@ import re
 
 # --- 2. Helper: Extract code from LLM ---
 def extract_python_code(response_text):
-    """Extracts Python code from a Markdown code block."""
-    # Updated regex to be more robust
     match = re.search(r"```python\n(.*?)\n```", response_text, re.DOTALL)
     if match:
         return match.group(1).strip()
-    # Fallback for responses that might not use the 'python' tag
     match = re.search(r"```(.*?)```", response_text, re.DOTALL)
     if match:
         return match.group(1).strip()
@@ -20,7 +17,6 @@ def extract_python_code(response_text):
 
 # --- 3. Gemini LLM call ---
 def call_gemini_llm(prompt, api_key):
-    """Sends a prompt to the Gemini API and returns the text response."""
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
@@ -32,43 +28,34 @@ def call_gemini_llm(prompt, api_key):
             st.error("Please ensure your Gemini API key is correct and valid in your Streamlit secrets.")
         return None
 
-# --- 4. Schema, Normalization, and Prompt Generation ---
+# --- 4. Schema & Prompt ---
 def normalize_column_names(df):
-    """Cleans and standardizes all column names in the DataFrame."""
     new_cols = {}
     for col in df.columns:
-        # Replace special characters and spaces with underscore, convert to lowercase
-        clean_col = re.sub(r'[^0-9a-zA-Z]+', '_', col).lower()
-        # Remove leading/trailing underscores
-        clean_col = clean_col.strip('_')
+        clean_col = re.sub(r'[^0-9a-zA-Z]+', '_', col).lower().strip('_')
         new_cols[col] = clean_col
-    df = df.rename(columns=new_cols)
+    return df.rename(columns=new_cols)
+
+def normalize_string_values(df):
+    for col in df.select_dtypes(include=['object']):
+        df[col] = df[col].astype(str).str.strip().str.lower()
     return df
 
 def get_data_schema(df):
-    """Generates a string representation of the DataFrame's schema."""
     schema_parts = []
     for col in df.columns:
-        # Providing more context for object columns
         if df[col].dtype == 'object':
-            unique_examples = df[col].unique()[:3] # Show up to 3 unique examples
-            example_str = ", ".join([f"'{str(x)}'" for x in unique_examples])
-            schema_parts.append(f"{col} (object, e.g., {example_str})")
+            examples = df[col].unique()[:3]
+            sample = ", ".join([f"'{str(x)}'" for x in examples])
+            schema_parts.append(f"{col} (object, e.g., {sample})")
         else:
             schema_parts.append(f"{col} ({df[col].dtype})")
     return "\n".join(schema_parts)
 
 def generate_llm_prompt(query, df):
-    """Generates a detailed, schema-agnostic prompt for the LLM."""
     schema = get_data_schema(df)
     return f"""
 You are an expert Python data analyst assistant. Your task is to generate Python code to answer a user's question about a pandas DataFrame named `df`.
-
-**CONTEXT:**
-- The `df` DataFrame is already loaded in memory.
-- You must not load any data or use file operations.
-- The user's query is a natural language question.
-- You do not know the schema of `df` in advance. Rely ONLY on the schema provided below.
 
 **DATAFRAME SCHEMA:**
 "{schema}"
@@ -76,136 +63,75 @@ You are an expert Python data analyst assistant. Your task is to generate Python
 "{query}"
 
 **INSTRUCTIONS:**
-1.  **Analyze the Query and Schema:** Carefully consider the user's query and the provided data schema to understand the intent.
-2.  **Generate Python Code:** Write a Python script that uses the `df` DataFrame to answer the query.
-3.  **Output Assignment:**
-    - For queries that result in a number, string, or boolean (e.g., "average age", "count of rows"), assign the final scalar value to a variable named `result`.
-    - For queries that result in a list of items (e.g., "show all rows where country is 'USA'"), assign the resulting DataFrame or Series to the `result` variable.
-4.  **Visualizations:**
-    - If the query asks for a chart (e.g., "plot a bar chart", "show the distribution"), generate a plot using `matplotlib.pyplot`.
-    - **DO NOT** use `plt.show()`. Instead, use `st.pyplot(plt.gcf())` to display the plot.
-    - Ensure all plots are high quality: include a clear title, and label the x and y axes.
-5.  **Code Quality and Safety:**
-    - Write clean, efficient, and correct pandas code.
-    - **Never hardcode column names.** Your code must be flexible and work even if the column names were different. Use the names provided in the schema above.
-    - Assume columns of type 'object' might contain mixed case or leading/trailing spaces. When filtering on these columns, always normalize the comparison value and the column, like this: `df[df['column_name'].str.lower().str.strip() == 'some value']`.
-    - Handle potential missing values (`NaN`) gracefully. Standard aggregations like `.mean()`, `.sum()`, and `.count()` do this automatically.
-
-**Your response MUST be ONLY the executable Python code inside a markdown block.**
-Do not include any explanations, comments outside the code, or introductory text.
+1. Use `df` directly. Do not reload or open files.
+2. Assign the result (scalar, DataFrame, or Series) to a variable named `result`.
+3. For plots, use `matplotlib.pyplot`, and display with `st.pyplot(plt.gcf())`. Do not call `plt.show()`.
+4. Normalize object columns for comparisons using `.str.lower().str.strip()`.
+5. Only return executable Python code in a code block.
 """
 
+# --- 5. Code Execution ---
 def execute_generated_code(code, df):
-    """Executes the generated Python code in a controlled environment."""
-    # Use a copy of the dataframe to prevent modification by the executed code
     df_copy = df.copy()
     local_scope = {'df': df_copy, 'pd': pd, 'plt': plt, 'st': st}
-
     try:
         exec(code, {}, local_scope)
         result = local_scope.get("result", None)
-
-        # Handle various types of results
         if isinstance(result, (pd.DataFrame, pd.Series)):
             return result
         elif isinstance(result, (int, float, bool, str)):
             return str(result)
-        # If no 'result' variable is assigned, it implies a plot was generated.
         return "✅ Code executed successfully. If you asked for a chart, it should be displayed above."
-
     except Exception as e:
         st.error("❌ An error occurred while executing the generated code.")
         st.exception(e)
         return None
 
-# --- 5. Streamlit App (Updated to use Gemini) ---
+# --- 6. Streamlit App UI ---
 st.set_page_config(page_title="NeoAT Excel Assistant", layout="centered")
 st.title("Tanmay's Excel Sheet Analyzer")
 st.markdown("Ask questions like:\n- *‘Count countries with lower rank than Syria’*\n- *‘Plot bar chart of top 5 by score’*")
 
-# --- IMPORTANT: Update the secret key name ---
-# 1. Go to your Streamlit Community Cloud settings.
-# 2. Add a new secret called 'GEMINI_API_KEY' and paste your API key there.
-api_key = st.secrets.get("GEMINI_API_KEY")
-
-uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
-query = st.text_input("❓ Ask a question about your data")
-        return None
-
-if not api_key:
-    st.warning("🔑 Please add your Gemini API key to the Streamlit secrets to begin.")
-elif uploaded_file and query:
-# --- 5. Streamlit App ---
-st.set_page_config(page_title="Data Analysis Assistant", layout="wide")
-st.title("💡 General-Purpose Data Analysis Assistant")
-st.markdown("Upload any structured Excel file and ask questions in plain English. The AI will generate and run the code to answer you.")
-
-# Use a sidebar for controls
 with st.sidebar:
     st.header("Controls")
-    api_key = st.text_input("Enter your Gemini API Key", type="password")
+    api_key = st.text_input("🔑 Gemini API Key", type="password")
     uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
     query = st.text_input("❓ Ask a question about your data")
     submit_button = st.button("🚀 Analyze")
 
-if submit_button and not api_key:
-    st.warning("🔑 Please enter your Gemini API key in the sidebar.")
-elif submit_button and not uploaded_file:
-    st.warning("📁 Please upload an Excel file.")
-elif submit_button and not query:
-    st.warning("❓ Please ask a question.")
-elif submit_button and api_key and uploaded_file and query:
-    try:
-        df = pd.read_excel(uploaded_file, engine="openpyxl")
-        df = normalize_column_names(df)
-        df = normalize_string_values(df)
-        st.subheader("🔍 Data Preview")
-        st.dataframe(df.head())
+if submit_button:
+    if not api_key:
+        st.warning("🔑 Please enter your Gemini API key.")
+    elif not uploaded_file:
+        st.warning("📁 Please upload an Excel file.")
+    elif not query:
+        st.warning("❓ Please enter a question.")
+    else:
+        try:
+            df = pd.read_excel(uploaded_file, engine="openpyxl")
+            df = normalize_column_names(df)
+            df = normalize_string_values(df)
 
-        schema = get_data_schema(df)
-        prompt = generate_llm_prompt(query, schema)
+            st.subheader("🔍 Data Preview")
+            st.dataframe(df.head())
 
-        with st.spinner("🤖 Thinking with Gemini..."):
-            # Call the new Gemini function
-            response = call_gemini_llm(prompt, api_key)
-            if response:  # Check if the API call was successful
-                code = extract_python_code(response)
+            prompt = generate_llm_prompt(query, df)
 
-                st.subheader("🧾 Generated Python Code")
-                st.code(code, language="python")
+            with st.spinner("🤖 Thinking with Gemini..."):
+                response = call_gemini_llm(prompt, api_key)
+                if response:
+                    code = extract_python_code(response)
 
-                st.subheader("💡 Answer / Chart")
-                result = execute_generated_code(code, df.copy()) # Use a copy to prevent modification issues
-                if isinstance(result, (pd.Series, pd.DataFrame)):
-                    st.write(result)
-                elif result is not None:
-                    st.write(result)
-        df_original = pd.read_excel(uploaded_file, engine="openpyxl")
-        df_processed = normalize_column_names(df_original)
+                    st.subheader("🧾 Generated Python Code")
+                    st.code(code, language="python")
 
-        st.subheader("🔍 Data Preview (Normalized)")
-        st.dataframe(df_processed.head())
+                    st.subheader("💡 Answer / Chart")
+                    result = execute_generated_code(code, df.copy())
 
-        prompt = generate_llm_prompt(query, df_processed)
-        
-        with st.spinner("🤖 AI is analyzing your data and writing code..."):
-            response_text = call_gemini_llm(prompt, api_key)
-        
-        if response_text:
-            code_to_execute = extract_python_code(response_text)
-            
-            with st.expander("🧾 View Generated Python Code", expanded=False):
-                st.code(code_to_execute, language="python")
+                    if isinstance(result, (pd.DataFrame, pd.Series)):
+                        st.dataframe(result)
+                    elif result is not None:
+                        st.write(result)
 
-            st.subheader("💡 Answer / Chart")
-            result = execute_generated_code(code_to_execute, df_processed)
-
-            if result is not None:
-                if isinstance(result, (pd.DataFrame, pd.Series)):
-                    st.dataframe(result)
-                else:
-                    st.markdown(result)
-
-    except Exception as e:
-        st.error(f"❌ Failed to process: {e}")
-        st.error(f"❌ A critical error occurred during processing: {e}")
+        except Exception as e:
+            st.error(f"❌ Failed to process: {e}")
