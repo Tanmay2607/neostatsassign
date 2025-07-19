@@ -89,15 +89,11 @@ def execute_generated_code(code, df):
 st.set_page_config(page_title="NeoAT Excel Assistant", layout="centered")
 st.title("📊 Tanmay's Excel Sheet Analyzer")
 
-st.markdown("Ask questions like:")
-st.markdown("- *‘Count countries with lower rank than Syria’*")
-st.markdown("- *‘Plot bar chart of top 5 by score’*")
-
 # Auto-read API key from secrets
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 
-uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
-query = st.text_input("❓ Ask a question about your data")
+uploaded_file = st.file_uploader(" Upload your Excel file", type=["xlsx"])
+query = st.text_input(" Ask a question about your excel sheet")
 submit_button = st.button("🚀 Analyze")
 
 if submit_button:
