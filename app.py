@@ -95,7 +95,6 @@ api_key = st.secrets.get("GEMINI_API_KEY", "")
 uploaded_file = st.file_uploader(" Upload your Excel file", type=["xlsx"])
 query = st.text_input(" Ask a question about your excel sheet")
 submit_button = st.button("Analyze")
-
 if submit_button:
     if not api_key:
         st.warning("🔐 Gemini API key missing from `secrets.toml`. Please add `GEMINI_API_KEY`.")
@@ -119,12 +118,10 @@ if submit_button:
                 if response:
                     code = extract_python_code(response)
 
-                    st.subheader("🧾 Generated Python Code")
-                    st.code(code, language="python")
-
-                    st.subheader("💡 Answer / Chart")
+                    # 🔒 Don't display the generated code
                     result = execute_generated_code(code, df.copy())
 
+                    st.subheader("💡 Answer / Chart")
                     if isinstance(result, (pd.DataFrame, pd.Series)):
                         st.dataframe(result)
                     elif result is not None:
